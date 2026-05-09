@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPS Network — Link Feed</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<style>
+  :root {
+    --bg: #0e1116;
+    --card: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --accent-hover: #79b8ff;
+    --success: #3fb950;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.5;
+  }
+  header {
+    position: sticky; top: 0;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  .meta {
+    color: var(--muted);
+    font-size: 13px;
+    display: flex;
+    gap: 16px;
+    align-items: center;
+  }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--success);
+    display: inline-block;
+    margin-right: 6px;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .dot.disconnected { background: #f85149; animation: none; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+  .empty {
+    text-align: center;
+    color: var(--muted);
+    padding: 48px 16px;
+    font-size: 14px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+    transition: border-color 0.15s;
+  }
+  .card:hover { border-color: #484f58; }
+  .card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .from { color: var(--text); font-weight: 500; }
+  .chat-label {
+    background: rgba(88, 166, 255, 0.15);
+    color: var(--accent);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+  }
+  .title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .url {
+    font-size: 13px;
+    color: var(--accent);
+    text-decoration: none;
+    word-break: break-all;
+    display: inline-block;
+    margin-bottom: 8px;
+  }
+  .url:hover { color: var(--accent-hover); text-decoration: underline; }
+  .body {
+    font-size: 14px;
+    color: var(--muted);
+    white-space: pre-wrap;
+  }
+  .config {
+    background: #1f2937;
+    border: 1px solid #374151;
+    color: var(--muted);
+    padding: 12px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin-bottom: 16px;
+  }
+  .config code {
+    background: rgba(0,0,0,0.3);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--text);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>GPS Network — Link Feed</h1>
+  <div class="meta">
+    <span><span id="status-dot" class="dot"></span><span id="status-text">connecting…</span></span>
+    <span id="counter">0 messages</span>
+    <span id="last-update">—</span>
+  </div>
+</header>
+
+<main>
+  <div id="config-banner" class="config" style="display:none;"></div>
+  <div id="feed">
+    <div class="empty">Waiting for the first link share…</div>
+  </div>
+</main>
+
+<script>
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+// Set SUPABASE_KEY before running. For local-only use, the service_role key
+// works (Grant has it). For sharing the dashboard URL with anyone else, swap
+// in the ANON key (Settings → API in the Supabase dashboard).
+// ---------------------------------------------------------------------------
+const SUPABASE_URL = 'https://wsvxocihxrhuxtlysgua.supabase.co';
+const SUPABASE_KEY = window.SUPABASE_KEY_OVERRIDE || prompt(
+  'Paste the Supabase API key (service_role for local, anon for shared):'
+);
+
+if (!SUPABASE_KEY) {
+  document.getElementById('config-banner').style.display = 'block';
+  document.getElementById('config-banner').innerHTML =
+    'No API key provided. Reload and paste one when prompted, or pre-set ' +
+    '<code>window.SUPABASE_KEY_OVERRIDE</code> before this script runs.';
+  throw new Error('No Supabase key');
+}
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const POLL_MS = 5000;
+const FEED_LIMIT = 50;
+
+// ---------------------------------------------------------------------------
+// Render
+// ---------------------------------------------------------------------------
+const feedEl = document.getElementById('feed');
+const counterEl = document.getElementById('counter');
+const lastUpdateEl = document.getElementById('last-update');
+const statusDotEl = document.getElementById('status-dot');
+const statusTextEl = document.getElementById('status-text');
+
+const formatTime = (iso) => {
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = (now - d) / 1000;
+  if (diff < 60) return `${Math.floor(diff)}s ago`;
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+  return d.toLocaleString('en-GB');
+};
+
+const escape = (s) => (s || '').replace(/[&<>"']/g, (c) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+}[c]));
+
+const chatLabelMap = new Map();
+
+async function loadChatLabels() {
+  const { data: chats } = await sb
+    .from('gps_chat_labels')
+    .select('chat_id, label');
+  if (chats) for (const c of chats) chatLabelMap.set(c.chat_id, c.label);
+}
+
+function render(rows) {
+  if (!rows || rows.length === 0) {
+    feedEl.innerHTML = '<div class="empty">No links shared yet. Waiting…</div>';
+    return;
+  }
+  feedEl.innerHTML = rows.map(r => {
+    const label = chatLabelMap.get(r.chat_id) || r.chat_id.split('@')[0];
+    const ts = r.sent_at || r.received_at;
+    // WhatsApp masks group members behind @lid identifiers unless they're a saved contact.
+    // Fall back to "anonymous member" for @lid cases, raw JID for phone-shaped ones.
+    const sender = r.from_name
+      || (r.from_jid && r.from_jid.includes('@lid') ? 'anonymous member' : r.from_jid)
+      || 'anonymous';
+    return `
+      <div class="card">
+        <div class="card-head">
+          <span><span class="from">${escape(sender)}</span>
+                · <span class="chat-label">${escape(label)}</span></span>
+          <span title="${escape(ts)}">${formatTime(ts)}</span>
+        </div>
+        ${r.link_title ? `<div class="title">${escape(r.link_title)}</div>` : ''}
+        <a href="${escape(r.url)}" target="_blank" rel="noopener" class="url">${escape(r.url)}</a>
+        ${r.text_body && r.text_body !== r.url ? `<div class="body">${escape(r.text_body)}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+async function fetchFeed() {
+  try {
+    const { data, error } = await sb
+      .from('gps_group_messages')
+      .select('id, received_at, sent_at, chat_id, from_name, from_jid, url, link_title, text_body')
+      .order('sent_at', { ascending: false })
+      .limit(FEED_LIMIT);
+    if (error) throw error;
+    render(data);
+    counterEl.textContent = `${data.length} message${data.length === 1 ? '' : 's'}`;
+    lastUpdateEl.textContent = `updated ${new Date().toLocaleTimeString('en-GB')}`;
+    statusDotEl.classList.remove('disconnected');
+    statusTextEl.textContent = 'live';
+  } catch (e) {
+    console.error(e);
+    statusDotEl.classList.add('disconnected');
+    statusTextEl.textContent = 'error: ' + (e.message || e);
+  }
+}
+
+(async function init() {
+  await loadChatLabels();
+  await fetchFeed();
+  setInterval(fetchFeed, POLL_MS);
+})();
+</script>
+
+</body>
+</html>
