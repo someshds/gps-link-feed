@@ -213,11 +213,9 @@ function render(rows) {
   feedEl.innerHTML = rows.map(r => {
     const label = chatLabelMap.get(r.chat_id) || r.chat_id.split('@')[0];
     const ts = r.sent_at || r.received_at;
-    // WhatsApp masks group members behind @lid identifiers unless they're a saved contact.
-    // Fall back to "anonymous member" for @lid cases, raw JID for phone-shaped ones.
-    const sender = r.from_name
-      || (r.from_jid && r.from_jid.includes('@lid') ? 'anonymous member' : r.from_jid)
-      || 'anonymous';
+    // The view exposes from_name (where known) but no raw JIDs. Senders the
+    // burner doesn't have in contacts show as null — display as "anonymous".
+    const sender = r.from_name || 'anonymous member';
     return `
       <div class="card">
         <div class="card-head">
@@ -237,7 +235,7 @@ async function fetchFeed() {
   try {
     const { data, error } = await sb
       .from('gps_group_messages')
-      .select('id, received_at, sent_at, chat_id, from_name, from_jid, url, link_title, text_body')
+      .select('id, received_at, sent_at, chat_id, from_name, url, link_title, text_body')
       .order('sent_at', { ascending: false })
       .limit(FEED_LIMIT);
     if (error) throw error;
