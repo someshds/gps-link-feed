@@ -3,18 +3,27 @@
 Live link-share feed from the GPS Action Network! WhatsApp group, surfaced for
 triage and review.
 
+**Live demo:** <https://someshds.github.io/gps-link-feed/>
+
 ## What this shows
 
 Every URL shared in the GPS Action Network! WhatsApp community group, in
-reverse-chronological order. Backed by a WhatsApp → Supabase pipeline; this
-page is read-only.
+reverse-chronological order. Backed by a Whapi → Supabase pipeline; this page
+is read-only.
 
 - Sender name where available (WhatsApp masks group members behind anonymous IDs by default)
 - Page title (from WhatsApp's own link previews where available)
 - Click-through to the original link
 - Approximate share time
 
-Polling refreshes every 5 seconds; new shares appear without reload.
+Polling refreshes every 5 seconds; new shares appear without reload. Curated
+out: messages without URLs, anything Grant has hidden via the upstream
+curation CLI.
+
+## Integrating with your own app
+
+See **[INTEGRATION.md](./INTEGRATION.md)** for the data shape, sample
+client code, and what's exposed vs. not exposed.
 
 ## Hosted
 
